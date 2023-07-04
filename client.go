@@ -4,8 +4,6 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
-	httpdialer "github.com/mwitkow/go-http-dialer"
-	tls "github.com/refraction-networking/utls"
 	"golang.org/x/net/http2"
 	"net"
 	"net/http"
@@ -13,6 +11,9 @@ import (
 	"net/url"
 	"sync"
 	"time"
+
+	httpdialer "github.com/mwitkow/go-http-dialer"
+	tls "github.com/refraction-networking/utls"
 )
 
 var (
