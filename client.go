@@ -23,9 +23,10 @@ var (
 type Client struct {
 	baseURL    string
 	httpClient *http.Client
+	proxies    []Proxy
 }
 
-type Option func(c *Client)
+type Option func(c *Client) error
 
 type Proxy struct {
 	host     string
@@ -40,12 +41,11 @@ type BypassJA3Transport struct {
 	mu          sync.RWMutex
 	clientHello tls.ClientHelloID
 	conn        net.Conn
+	proxies     []Proxy
 }
 
-var proxies []Proxy
-
-func NewBypassJA3Transport(helloID tls.ClientHelloID) *BypassJA3Transport {
-	return &BypassJA3Transport{clientHello: helloID}
+func NewBypassJA3Transport(helloID tls.ClientHelloID, proxies []Proxy) *BypassJA3Transport {
+	return &BypassJA3Transport{clientHello: helloID, proxies: proxies}
 }
 
 func (b *BypassJA3Transport) getTLSConfig(req *http.Request) *tls.Config {
@@ -73,8 +73,8 @@ func (b *BypassJA3Transport) SetClientHello(hello tls.ClientHelloID) {
 }
 
 func (b *BypassJA3Transport) getConn(req *http.Request, port string) error {
-	if len(proxies) > 0 {
-		for _, proxy := range proxies {
+	if b.proxies != nil {
+		for _, proxy := range b.proxies {
 			uri, err := url.Parse(fmt.Sprintf("http://%s:%s", proxy.host, proxy.port))
 			if err != nil {
 				return fmt.Errorf("%v", err)
@@ -153,41 +153,55 @@ func (b *BypassJA3Transport) httpsRoundTrip(req *http.Request) (*http.Response, 
 	}
 }
 
-func NewClient(opts ...Option) *Client {
+func NewClient(opts ...Option) (*Client, error) {
 	jar, err := cookiejar.New(nil)
 	if err != nil {
-		fmt.Println(err)
+		return nil, err
 	}
 
 	client := &Client{
-		baseURL: DefaultBaseURL,
-		httpClient: &http.Client{
-			Timeout:   10 * time.Second,
-			Transport: NewBypassJA3Transport(tls.HelloChrome_102),
-			Jar:       jar,
-		},
+		baseURL:    DefaultBaseURL,
+		httpClient: nil,
+		proxies:    nil,
 	}
 
 	for _, o := range opts {
-		o(client)
+		if err = o(client); err != nil {
+			return nil, err
+		}
 	}
-	return client
+
+	if client.httpClient == nil {
+		client.httpClient = &http.Client{
+			Timeout:   10 * time.Second,
+			Transport: NewBypassJA3Transport(tls.HelloChrome_102, client.proxies),
+			Jar:       jar,
+		}
+	}
+	return client, nil
 }
 
 func WithBaseURL(url string) Option {
-	return func(c *Client) {
+	return func(c *Client) error {
 		c.baseURL = url
+		return nil
 	}
 }
 
 func WithHTTPClient(httpClient *http.Client) Option {
-	return func(c *Client) {
+	return func(c *Client) error {
 		c.httpClient = httpClient
+		return nil
 	}
 }
 
 func WithProxy(p []string) Option {
-	return func(c *Client) {
-		proxies = parseProxies(p)
+	return func(c *Client) error {
+		proxies, err := parseProxies(p)
+		if err != nil {
+			return err
+		}
+		c.proxies = proxies
+		return nil
 	}
 }
